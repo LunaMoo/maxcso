@@ -59,6 +59,7 @@ private:
 	uv_file output_ = -1;
 	uint32_t blockSize_= 0;
 	int64_t size_ = 0;
+	bool cancelled_ = false;
 };
 
 void CompressionTask::Enqueue() {
@@ -136,11 +137,14 @@ void CompressionTask::Cleanup() {
 
 void CompressionTask::BeginProcessing() {
 	inputHandler_.OnFinish([this](bool success, const char *reason) {
-		if (!success) {
+		if (!success && !cancelled_) {
 			Notify(TASK_INVALID_DATA, reason);
 		}
 	});
 	outputHandler_.OnFinish([this](bool success, const char *reason) {
+		if (cancelled_) {
+			return;
+		}
 		if (success) {
 			Notify(TASK_SUCCESS, size_, size_, outputHandler_.Written());
 		} else {
@@ -151,6 +155,17 @@ void CompressionTask::BeginProcessing() {
 	});
 
 	outputHandler_.OnProgress([this](int64_t pos, int64_t total, int64_t written) {
+		if (cancelled_) {
+			return;
+		}
+		if (task_.cancel && task_.cancel()) {
+			// Same as a write failure: stop reading, and the loop runs dry once the blocks
+			// already being compressed are done.
+			cancelled_ = true;
+			inputHandler_.Pause();
+			Notify(TASK_CANCELLED, "Cancelled");
+			return;
+		}
 		// If it was paused, the queue has space now.
 		inputHandler_.Resume();
 		Notify(TASK_INPROGRESS, pos, total, written);

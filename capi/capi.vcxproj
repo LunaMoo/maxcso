@@ -70,26 +70,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>..\lib\$(Platform)\$(Configuration)\</OutDir>
-    <TargetName>maxcso</TargetName>
+    <TargetName>mCSO</TargetName>
     <IntDir>$(Configuration)\obj\$(ProjectName)\$(Platform)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>..\lib\$(Platform)\$(Configuration)\</OutDir>
-    <TargetName>maxcso</TargetName>
+    <TargetName>mCSO</TargetName>
     <IntDir>$(Configuration)\obj\$(ProjectName)\$(Platform)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>..\lib\$(Platform)\$(Configuration)\</OutDir>
-    <TargetName>maxcso</TargetName>
+    <TargetName>mCSO</TargetName>
     <IntDir>$(Configuration)\obj\$(ProjectName)\$(Platform)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>..\lib\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(Configuration)\obj\$(ProjectName)\$(Platform)\</IntDir>
-    <TargetName>maxcso</TargetName>
+    <TargetName>mCSO</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

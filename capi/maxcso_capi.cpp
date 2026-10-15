@@ -4,6 +4,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <uv.h>
 #include "maxcso_capi.h"
 #include "../src/compress.h"
 
@@ -54,8 +55,20 @@ int ToResult(maxcso::TaskStatus status) {
 	case maxcso::TASK_INVALID_DATA: return MAXCSO_RESULT_INVALID_DATA;
 	case maxcso::TASK_CANNOT_WRITE: return MAXCSO_RESULT_CANNOT_WRITE;
 	case maxcso::TASK_INVALID_OPTION: return MAXCSO_RESULT_INVALID_OPTION;
+	case maxcso::TASK_CANCELLED: return MAXCSO_RESULT_CANCELLED;
 	default: return MAXCSO_RESULT_UNKNOWN;
 	}
+}
+
+// UTF-8 path delete that works on Windows too.
+void RemoveOutput(const char *path) {
+	uv_loop_t loop;
+	if (uv_loop_init(&loop) != 0)
+		return;
+	uv_fs_t req;
+	uv_fs_unlink(&loop, &req, path, nullptr);
+	uv_fs_req_cleanup(&req);
+	uv_loop_close(&loop);
 }
 
 void CopyError(char *error, size_t error_size, const char *msg) {
@@ -100,14 +113,18 @@ int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output,
 	task.flags = flags;
 	task.orig_max_cost_percent = 0.0;
 	task.lz4_max_cost_percent = 0.0;
+	bool cancelRequested = false;
 	task.progress = [&](const maxcso::Task *, maxcso::TaskStatus status, int64_t pos, int64_t total, int64_t written) {
 		if (status == maxcso::TASK_INPROGRESS) {
-			if (progress)
-				progress(userdata, pos, total, written);
+			if (progress && progress(userdata, pos, total, written) != 0)
+				cancelRequested = true;
 		} else {
 			finished = true;
 			finalStatus = status;
 		}
+	};
+	task.cancel = [&]() {
+		return cancelRequested;
 	};
 	task.error = [&](const maxcso::Task *, maxcso::TaskStatus status, const char *msg) {
 		finished = true;
@@ -126,6 +143,8 @@ int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output,
 	int result = ToResult(finalStatus);
 	if (result != MAXCSO_RESULT_SUCCESS)
 		CopyError(error, error_size, reason.empty() ? "Unknown error" : reason.c_str());
+	if (result == MAXCSO_RESULT_CANCELLED)
+		RemoveOutput(output);
 	return result;
 }
 

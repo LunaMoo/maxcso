@@ -120,7 +120,7 @@ without any changes.
 To build on Windows, simply open cli/maxcso.sln and build.  Visual Studio 2017 or higher is
 required.  The projects use the default toolset of whichever Visual Studio opens them.
 
-The solution also builds `maxcso.dll` (the `capi` project, see Library below) into
+The solution also builds `mCSO.dll` (the `capi` project, see Library below) into
 `lib\<platform>\<configuration>\`.
 
 ### Mac OS X
@@ -158,8 +158,8 @@ It's meant for programs that load it at runtime, such as the PPSSPP emulator: it
 of plain C functions (`maxcso_process()` compresses or decompresses one file, with a fast, standard
 or maximum preset) and nothing else.
 
-On Windows, build the `capi` project in cli/maxcso.sln, which produces `maxcso.dll`.  Elsewhere,
-`make lib` produces `libmaxcso.so` (or `libmaxcso.dylib` on macOS) and `libmaxcso.a`.  The static
+On Windows, build the `capi` project in cli/maxcso.sln, which produces `mCSO.dll`.  Elsewhere,
+`make lib` produces `mCSO.so` (or `mCSO.dylib` on macOS) and `mCSO.a`.  The static
 library already contains the bundled 7-zip and libdeflate code, so it only needs libuv, lz4 and
 zlib next to it.
 

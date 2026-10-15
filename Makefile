@@ -30,7 +30,7 @@ LIBS := $(LIBS_UV) $(LIBS_LZ4) $(LIBS_ZLIB)
 OBJDIR := obj
 MKDIRS := $(OBJDIR)/src $(OBJDIR)/cli $(OBJDIR)/capi $(OBJDIR)/zopfli/src/zopfli
 
-# Everything is built position independent, so the same objects can go into libmaxcso.so.
+# Everything is built position independent, so the same objects can go into mCSO.so.
 ifeq ($(OS),Windows_NT)
 	PIC_FLAGS :=
 else
@@ -39,15 +39,15 @@ endif
 
 UNAME_S := $(shell uname -s 2>/dev/null)
 ifeq ($(UNAME_S),Darwin)
-	SHARED_LIB := libmaxcso.dylib
+	SHARED_LIB := mCSO.dylib
 	SHARED_LIB_FLAGS = -dynamiclib -install_name @rpath/$(SHARED_LIB) \
 		-Wl,-exported_symbols_list,$(SRCDIR)/capi/exports.txt
 else
-	SHARED_LIB := libmaxcso.so
+	SHARED_LIB := mCSO.so
 	SHARED_LIB_FLAGS = -shared -Wl,-soname,$(SHARED_LIB) \
 		-Wl,--version-script=$(SRCDIR)/capi/exports.map -Wl,--no-undefined
 endif
-STATIC_LIB := libmaxcso.a
+STATIC_LIB := mCSO.a
 
 SRC_CFLAGS += -W -Wall -Wextra -Wno-implicit-function-declaration -DNDEBUG=1 $(PIC_FLAGS)
 SRC_CXXFLAGS += -W -Wall -Wextra -std=c++11 -I$(SRCDIR)/zopfli/src -I$(SRCDIR)/7zip \

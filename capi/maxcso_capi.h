@@ -22,7 +22,7 @@
 #endif
 #endif
 
-#define MAXCSO_CAPI_VERSION 1
+#define MAXCSO_CAPI_VERSION 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,10 +44,12 @@ enum maxcso_result {
 	MAXCSO_RESULT_CANNOT_WRITE = 4,
 	MAXCSO_RESULT_INVALID_OPTION = 5,
 	MAXCSO_RESULT_UNKNOWN = 6,
+	MAXCSO_RESULT_CANCELLED = 7,  // The progress callback asked to stop. The partial output is deleted.
 };
 
-// Called periodically from the thread that called maxcso_process.
-typedef void (MAXCSO_CAPI_CALL *maxcso_progress_cb)(void *userdata, int64_t pos, int64_t total, int64_t written);
+// Called periodically from the thread that called maxcso_process. Return nonzero to cancel.
+// (Version 1 of the API returned void here.)
+typedef int (MAXCSO_CAPI_CALL *maxcso_progress_cb)(void *userdata, int64_t pos, int64_t total, int64_t written);
 
 typedef int (MAXCSO_CAPI_CALL *maxcso_capi_version_fn)(void);
 typedef const char *(MAXCSO_CAPI_CALL *maxcso_version_fn)(void);
