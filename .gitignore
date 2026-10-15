@@ -1,6 +1,9 @@
 # Object files
 /cli/Debug
 /cli/Release
+/capi/Debug
+/capi/Release
+/lib
 /obj
 /7zip/obj
 *.o

@@ -1,0 +1,9 @@
+{
+	global:
+		maxcso_capi_version;
+		maxcso_version;
+		maxcso_process;
+		maxcso_process_flags;
+	local:
+		*;
+};

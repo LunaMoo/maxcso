@@ -1,0 +1,73 @@
+// Minimal C API for maxcso, meant for programs that load it at runtime (dlopen / LoadLibrary),
+// such as PPSSPP. All paths are UTF-8. Bump MAXCSO_CAPI_VERSION on any incompatible change.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+// MAXCSO_CAPI_BUILD is defined when building the library itself.
+#if defined(_WIN32)
+#define MAXCSO_CAPI_CALL __cdecl
+#if defined(MAXCSO_CAPI_BUILD)
+#define MAXCSO_CAPI_EXPORT __declspec(dllexport)
+#else
+#define MAXCSO_CAPI_EXPORT
+#endif
+#else
+#define MAXCSO_CAPI_CALL
+#if defined(MAXCSO_CAPI_BUILD)
+#define MAXCSO_CAPI_EXPORT __attribute__((visibility("default")))
+#else
+#define MAXCSO_CAPI_EXPORT
+#endif
+#endif
+
+#define MAXCSO_CAPI_VERSION 1
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+enum maxcso_mode {
+	MAXCSO_MODE_DECOMPRESS = 0,
+	MAXCSO_MODE_FAST = 1,      // Basic zlib only (like --fast).
+	MAXCSO_MODE_STANDARD = 2,  // maxcso defaults (zlib + brute force + 7-zip deflate).
+	MAXCSO_MODE_MAXIMUM = 3,   // Defaults + Zopfli + libdeflate (very slow, smallest output).
+};
+
+// Return values of maxcso_process / maxcso_process_flags.
+enum maxcso_result {
+	MAXCSO_RESULT_SUCCESS = 0,
+	MAXCSO_RESULT_BAD_INPUT = 1,
+	MAXCSO_RESULT_BAD_OUTPUT = 2,
+	MAXCSO_RESULT_INVALID_DATA = 3,
+	MAXCSO_RESULT_CANNOT_WRITE = 4,
+	MAXCSO_RESULT_INVALID_OPTION = 5,
+	MAXCSO_RESULT_UNKNOWN = 6,
+};
+
+// Called periodically from the thread that called maxcso_process.
+typedef void (MAXCSO_CAPI_CALL *maxcso_progress_cb)(void *userdata, int64_t pos, int64_t total, int64_t written);
+
+typedef int (MAXCSO_CAPI_CALL *maxcso_capi_version_fn)(void);
+typedef const char *(MAXCSO_CAPI_CALL *maxcso_version_fn)(void);
+typedef int (MAXCSO_CAPI_CALL *maxcso_process_fn)(const char *input, const char *output, int mode,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+// Returns MAXCSO_CAPI_VERSION.
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_capi_version(void);
+// Returns the maxcso version string, e.g. "1.13.0".
+MAXCSO_CAPI_EXPORT const char *MAXCSO_CAPI_CALL maxcso_version(void);
+
+// Compresses (to CSO v1) or decompresses (CSO/ZSO/DAX to ISO) a single file. Blocking.
+// error may be NULL; otherwise receives a NUL-terminated message on failure.
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process(const char *input, const char *output, int mode,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+// Same, but with raw maxcso::TaskFlags and block size (0xFFFFFFFF = automatic).
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output, uint32_t flags,
+	uint32_t block_size, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+#ifdef __cplusplus
+}
+#endif
