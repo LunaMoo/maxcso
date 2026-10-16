@@ -612,10 +612,11 @@ int main(int argc, char **argv) {
 		}
 
 		if (pbp.ok) {
-			for (int compress : { 1, 0 }) {
+			uint64_t lzrcSize = 0;
+			for (int compress : { 1, 2, 0 }) {
 				Result r;
 				r.format = "PBP";
-				r.setting = compress ? "LZRC" : "uncompressed";
+				r.setting = compress == 2 ? "LZRC max" : compress ? "LZRC" : "uncompressed";
 				r.input = size;
 				fs::path out = tmp / "EBOOT.PBP";
 				Remove(out);
@@ -653,6 +654,9 @@ int main(int argc, char **argv) {
 				}
 				pbp.job_destroy(job);
 				Remove(out);
+				if (compress == 1) lzrcSize = r.output;
+				// An iPBP.dll older than the max mode treats 2 as plain LZRC.
+				if (compress == 2 && !r.failed && r.output == lzrcSize) r.verify += " (same as LZRC: iPBP.dll without max mode?)";
 				Report(game, r);
 			}
 		}
