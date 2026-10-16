@@ -82,8 +82,13 @@ void CopyError(char *error, size_t error_size, const char *msg) {
 	error[error_size - 1] = '\0';
 }
 
+// input / output may be null when reader / writer is given instead.
 int ProcessTask(const char *input, const char *output, const maxcso_options &opt,
-	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size,
+	const maxcso_reader *reader = nullptr, const maxcso_writer *writer = nullptr);
+
+// Validated options from a caller's (possibly older, shorter) struct.
+bool ReadOptions(const maxcso_options *options, maxcso_options *opt, char *error, size_t error_size);
 
 }  // namespace
 
@@ -114,21 +119,35 @@ int MAXCSO_CAPI_CALL maxcso_options_init(maxcso_options *options, int mode) {
 int MAXCSO_CAPI_CALL maxcso_process_ex(const char *input, const char *output, const maxcso_options *options,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
 	CopyError(error, error_size, "");
-	// The first fields a caller can know about; anything past struct_size keeps its default.
-	const size_t minSize = offsetof(maxcso_options, zopfli_split_max);
-	if (!options || options->struct_size < minSize) {
-		CopyError(error, error_size, "Missing or invalid options");
+	maxcso_options opt;
+	if (!ReadOptions(options, &opt, error, error_size))
+		return MAXCSO_RESULT_INVALID_OPTION;
+	return ProcessTask(input, output, opt, progress, userdata, error, error_size);
+}
+
+int MAXCSO_CAPI_CALL maxcso_process_reader(const maxcso_reader *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
+	CopyError(error, error_size, "");
+	if (!input || !input->read_at) {
+		CopyError(error, error_size, "Missing input reader");
 		return MAXCSO_RESULT_INVALID_OPTION;
 	}
 	maxcso_options opt;
-	maxcso_options_init(&opt, MAXCSO_MODE_STANDARD);
-	memcpy(&opt, options, std::min<size_t>(options->struct_size, sizeof(opt)));
-	opt.struct_size = sizeof(opt);
-	if (opt.precheck_percent < 0.0 || opt.precheck_percent > 100.0) {
-		CopyError(error, error_size, "precheck_percent must be from 0 to 100");
+	if (!ReadOptions(options, &opt, error, error_size))
+		return MAXCSO_RESULT_INVALID_OPTION;
+	return ProcessTask(nullptr, output, opt, progress, userdata, error, error_size, input, nullptr);
+}
+
+int MAXCSO_CAPI_CALL maxcso_decompress_writer(const char *input, const maxcso_writer *output,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
+	CopyError(error, error_size, "");
+	if (!output || !output->write_at) {
+		CopyError(error, error_size, "Missing output writer");
 		return MAXCSO_RESULT_INVALID_OPTION;
 	}
-	return ProcessTask(input, output, opt, progress, userdata, error, error_size);
+	maxcso_options opt;
+	maxcso_options_init(&opt, MAXCSO_MODE_DECOMPRESS);
+	return ProcessTask(input, nullptr, opt, progress, userdata, error, error_size, nullptr, output);
 }
 
 int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output, uint32_t flags,
@@ -144,10 +163,28 @@ int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output,
 
 namespace {
 
+bool ReadOptions(const maxcso_options *options, maxcso_options *opt, char *error, size_t error_size) {
+	// The first fields a caller can know about; anything past struct_size keeps its default.
+	const size_t minSize = offsetof(maxcso_options, zopfli_split_max);
+	if (!options || options->struct_size < minSize) {
+		CopyError(error, error_size, "Missing or invalid options");
+		return false;
+	}
+	maxcso_options_init(opt, MAXCSO_MODE_STANDARD);
+	memcpy(opt, options, std::min<size_t>(options->struct_size, sizeof(*opt)));
+	opt->struct_size = sizeof(*opt);
+	if (opt->precheck_percent < 0.0 || opt->precheck_percent > 100.0) {
+		CopyError(error, error_size, "precheck_percent must be from 0 to 100");
+		return false;
+	}
+	return true;
+}
+
 int ProcessTask(const char *input, const char *output, const maxcso_options &opt,
-	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size,
+	const maxcso_reader *reader, const maxcso_writer *writer) {
 	CopyError(error, error_size, "");
-	if (!input || !output || !*input || !*output) {
+	if ((!reader && (!input || !*input)) || (!writer && (!output || !*output))) {
 		CopyError(error, error_size, "Missing input or output path");
 		return MAXCSO_RESULT_INVALID_OPTION;
 	}
@@ -159,8 +196,26 @@ int ProcessTask(const char *input, const char *output, const maxcso_options &opt
 	std::string reason;
 
 	maxcso::Task task;
-	task.input = input;
-	task.output = output;
+	task.input = input ? input : "";
+	task.output = output ? output : "";
+	if (reader) {
+		const maxcso_reader r = *reader;
+		task.input_size = static_cast<int64_t>(r.size);
+		task.input_read = [r](int64_t offset, uint8_t *buffer, size_t length) {
+			return r.read_at(r.user, static_cast<uint64_t>(offset), buffer, length);
+		};
+	}
+	if (writer) {
+		const maxcso_writer w = *writer;
+		if (w.begin) {
+			task.output_begin = [w](int64_t size) {
+				return w.begin(w.user, static_cast<uint64_t>(size)) == 0;
+			};
+		}
+		task.output_write = [w](int64_t offset, const uint8_t *buffer, size_t length) {
+			return w.write_at(w.user, static_cast<uint64_t>(offset), buffer, length);
+		};
+	}
 	task.block_size = opt.block_size;
 	task.flags = opt.flags;
 	task.orig_max_cost_percent = 0.0;
@@ -197,7 +252,7 @@ int ProcessTask(const char *input, const char *output, const maxcso_options &opt
 	int result = ToResult(finalStatus);
 	if (result != MAXCSO_RESULT_SUCCESS)
 		CopyError(error, error_size, reason.empty() ? "Unknown error" : reason.c_str());
-	if (result == MAXCSO_RESULT_CANCELLED)
+	if (result == MAXCSO_RESULT_CANCELLED && !writer)
 		RemoveOutput(output);
 	return result;
 }

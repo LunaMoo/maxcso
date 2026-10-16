@@ -76,6 +76,16 @@ struct Task {
 	// Optional. Checked on each progress update; returning true stops the task (reported as
 	// TASK_CANCELLED through error), leaving the output incomplete.
 	std::function<bool()> cancel;
+
+	// Optional. When input_read is set, the input is read through it (input_size bytes) instead
+	// of opening input; when output_write is set, the output is written through it instead of
+	// opening output, after output_begin (if set) agreed to the uncompressed size by returning
+	// true. Both return the bytes transferred or a negative value, and run on libuv's threadpool:
+	// output_write may run for several blocks at once, at any offset.
+	int64_t input_size = -1;
+	std::function<int64_t (int64_t offset, uint8_t *buffer, size_t length)> input_read;
+	std::function<bool (int64_t size)> output_begin;
+	std::function<int64_t (int64_t offset, const uint8_t *buffer, size_t length)> output_write;
 };
 
 void Compress(const std::vector<Task> &tasks);

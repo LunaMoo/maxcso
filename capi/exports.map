@@ -6,6 +6,8 @@
 		maxcso_process_flags;
 		maxcso_options_init;
 		maxcso_process_ex;
+		maxcso_process_reader;
+		maxcso_decompress_writer;
 	local:
 		*;
 };

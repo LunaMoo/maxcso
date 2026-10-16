@@ -68,6 +68,114 @@ static int round_trip(const char *dir, const unsigned char *iso, int mode, const
 	return 0;
 }
 
+struct memory {
+	const unsigned char *in;
+	unsigned char *out;
+	uint64_t size;
+	int refuse;
+};
+
+static int64_t MAXCSO_CAPI_CALL mem_read(void *user, uint64_t offset, void *buffer, size_t length) {
+	struct memory *m = (struct memory *)user;
+	if (offset >= m->size)
+		return 0;
+	if (length > m->size - offset)
+		length = (size_t)(m->size - offset);
+	memcpy(buffer, m->in + offset, length);
+	return (int64_t)length;
+}
+
+static int MAXCSO_CAPI_CALL mem_begin(void *user, uint64_t size) {
+	struct memory *m = (struct memory *)user;
+	if (m->refuse)
+		return 1;
+	m->size = size;
+	m->out = (unsigned char *)calloc((size_t)size, 1);
+	return m->out ? 0 : 1;
+}
+
+static int64_t MAXCSO_CAPI_CALL mem_write(void *user, uint64_t offset, const void *buffer, size_t length) {
+	struct memory *m = (struct memory *)user;
+	if (!m->out || offset > m->size || length > m->size - offset)
+		return -1;
+	memcpy(m->out + offset, buffer, length);
+	return (int64_t)length;
+}
+
+static int MAXCSO_CAPI_CALL cancel_progress(void *userdata, int64_t pos, int64_t total, int64_t written) {
+	(void)userdata; (void)pos; (void)total; (void)written;
+	return 1;
+}
+
+/* ISO in memory -> CSO file must match ISO file -> CSO file; that CSO back into memory must be the ISO. */
+static int memory_round_trip(const char *dir, const unsigned char *iso) {
+	char iso_path[1024], file_cso[1024], mem_cso[1024], error[256] = "";
+	long file_size = 0, mem_size = 0;
+	unsigned char *a, *b;
+	struct memory m;
+	maxcso_reader reader;
+	maxcso_writer writer;
+	maxcso_options opts;
+	int rc, failed = 0;
+
+	snprintf(iso_path, sizeof(iso_path), "%s/mcso_test.iso", dir);
+	snprintf(file_cso, sizeof(file_cso), "%s/mcso_test_file.cso", dir);
+	snprintf(mem_cso, sizeof(mem_cso), "%s/mcso_test_mem.cso", dir);
+	maxcso_options_init(&opts, MAXCSO_MODE_FAST);
+
+	memset(&m, 0, sizeof(m));
+	m.in = iso;
+	m.size = ISO_SIZE;
+	reader.user = &m;
+	reader.size = ISO_SIZE;
+	reader.read_at = mem_read;
+	rc = maxcso_process_ex(iso_path, file_cso, &opts, NULL, NULL, error, sizeof(error));
+	if (rc == MAXCSO_RESULT_SUCCESS)
+		rc = maxcso_process_reader(&reader, mem_cso, &opts, NULL, NULL, error, sizeof(error));
+	if (rc != MAXCSO_RESULT_SUCCESS) {
+		fprintf(stderr, "memory: compress failed (%d): %s\n", rc, error);
+		return 1;
+	}
+	a = read_file(file_cso, &file_size);
+	b = read_file(mem_cso, &mem_size);
+	if (!a || !b || file_size != mem_size || memcmp(a, b, file_size) != 0) {
+		fprintf(stderr, "memory: CSO from memory differs (%ld vs %ld bytes)\n", mem_size, file_size);
+		failed = 1;
+	}
+	free(a);
+	free(b);
+
+	memset(&m, 0, sizeof(m));
+	writer.user = &m;
+	writer.begin = mem_begin;
+	writer.write_at = mem_write;
+	rc = maxcso_decompress_writer(mem_cso, &writer, NULL, NULL, error, sizeof(error));
+	if (rc != MAXCSO_RESULT_SUCCESS || m.size != ISO_SIZE || memcmp(m.out, iso, ISO_SIZE) != 0) {
+		fprintf(stderr, "memory: decompress failed (%d, %llu bytes): %s\n", rc, (unsigned long long)m.size, error);
+		failed = 1;
+	}
+	free(m.out);
+
+	memset(&m, 0, sizeof(m));
+	m.refuse = 1;
+	if (maxcso_decompress_writer(mem_cso, &writer, NULL, NULL, error, sizeof(error)) != MAXCSO_RESULT_BAD_OUTPUT) {
+		fprintf(stderr, "memory: begin couldn't refuse\n");
+		failed = 1;
+	}
+	memset(&m, 0, sizeof(m));
+	if (maxcso_decompress_writer(mem_cso, &writer, cancel_progress, NULL, error, sizeof(error)) != MAXCSO_RESULT_CANCELLED) {
+		fprintf(stderr, "memory: cancel didn't stop it\n");
+		failed = 1;
+	}
+	free(m.out);
+
+	if (!failed)
+		printf("memory: ok\n");
+	remove(file_cso);
+	remove(mem_cso);
+	return failed;
+}
+
 int main(int argc, char **argv) {
 	const char *dir = argc > 1 ? argv[1] : ".";
 	char iso_path[1024];
@@ -108,6 +216,7 @@ int main(int argc, char **argv) {
 
 	failed |= round_trip(dir, iso, MAXCSO_MODE_FAST, "fast");
 	failed |= round_trip(dir, iso, MAXCSO_MODE_STANDARD, "standard");
+	failed |= memory_round_trip(dir, iso);
 
 	remove(iso_path);
 	free(iso);

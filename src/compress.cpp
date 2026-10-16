@@ -44,6 +44,7 @@ private:
 		task_.error(&task_, status, reason);
 	}
 
+	void OpenOutput();
 	void BeginProcessing();
 
 	UVHelper uv_;
@@ -54,6 +55,8 @@ private:
 	uv_fs_t write_;
 
 	uv_file input_ = -1;
+	VirtualFile virtualInput_;
+	VirtualFile virtualOutput_;
 	Input inputHandler_;
 	Output outputHandler_;
 	uv_file output_ = -1;
@@ -91,6 +94,18 @@ void CompressionTask::Enqueue() {
 		return;
 	}
 
+	if (task_.input_read) {
+		if (task_.input_size < 0) {
+			Notify(TASK_BAD_INPUT, "Missing input size");
+			return;
+		}
+		virtualInput_.size = task_.input_size;
+		virtualInput_.read = task_.input_read;
+		input_ = UVHelper::RegisterVirtual(&virtualInput_);
+		OpenOutput();
+		return;
+	}
+
 	// We open input and output in order in case there are errors.
 	uv_.fs_open(loop_, &read_, task_.input.c_str(), O_RDONLY, 0444, [this](uv_fs_t *req) {
 		uv_file result = static_cast<uv_file>(req->result);
@@ -100,35 +115,51 @@ void CompressionTask::Enqueue() {
 			Notify(TASK_BAD_INPUT, "Could not open input file");
 		} else {
 			input_ = result;
-			if (task_.flags & TASKFLAG_MEASURE) {
-				BeginProcessing();
-				return;
-			}
+			OpenOutput();
+		}
+	});
+}
 
-			uv_.fs_open(loop_, &write_, task_.output.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0644, [this](uv_fs_t *req) {
-				uv_file result = static_cast<uv_file>(req->result);
-				uv_fs_req_cleanup(req);
+void CompressionTask::OpenOutput() {
+	if (task_.flags & TASKFLAG_MEASURE) {
+		BeginProcessing();
+		return;
+	}
+	if (task_.output_write) {
+		virtualOutput_.write = task_.output_write;
+		output_ = UVHelper::RegisterVirtual(&virtualOutput_);
+		BeginProcessing();
+		return;
+	}
 
-				if (result < 0) {
-					Notify(TASK_BAD_OUTPUT, "Could not open output file");
-				} else {
-					output_ = result;
+	uv_.fs_open(loop_, &write_, task_.output.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0644, [this](uv_fs_t *req) {
+		uv_file result = static_cast<uv_file>(req->result);
+		uv_fs_req_cleanup(req);
 
-					// Okay, both files opened fine, it's time to turn on the tap.
-					BeginProcessing();
-				}
-			});
+		if (result < 0) {
+			Notify(TASK_BAD_OUTPUT, "Could not open output file");
+		} else {
+			output_ = result;
+
+			// Okay, both files opened fine, it's time to turn on the tap.
+			BeginProcessing();
 		}
 	});
 }
 
 void CompressionTask::Cleanup() {
-	if (input_ >= 0) {
+	if (UVHelper::IsVirtual(input_)) {
+		UVHelper::UnregisterVirtual(input_);
+		input_ = -1;
+	} else if (input_ >= 0) {
 		uv_fs_close(loop_, &read_, input_, nullptr);
 		uv_fs_req_cleanup(&read_);
 		input_ = -1;
 	}
-	if (output_ >= 0) {
+	if (UVHelper::IsVirtual(output_)) {
+		UVHelper::UnregisterVirtual(output_);
+		output_ = -1;
+	} else if (output_ >= 0) {
 		uv_fs_close(loop_, &write_, output_, nullptr);
 		uv_fs_req_cleanup(&write_);
 		output_ = -1;
@@ -190,6 +221,12 @@ void CompressionTask::BeginProcessing() {
 				Notify(TASK_INVALID_OPTION, "Unable to update buffer size to match block size");
 				return;
 			}
+		}
+
+		if (task_.output_begin && UVHelper::IsVirtual(output_) && !task_.output_begin(size)) {
+			inputHandler_.Pause();
+			Notify(TASK_BAD_OUTPUT, "The output refused the image size");
+			return;
 		}
 
 		outputHandler_.SetFile(output_, size, blockSize_, fmt);

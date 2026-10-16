@@ -69,8 +69,32 @@ typedef struct maxcso_options {
 	                            // can't shrink below this percentage of the block size.
 } maxcso_options;
 
+// The image on the caller's side instead of in a file, for maxcso_process_reader and
+// maxcso_decompress_writer (probed for like maxcso_process_ex). The callbacks run on maxcso's
+// worker threads, not the caller's. read_at and write_at return the number of bytes
+// transferred (read_at may return less only at the end), or a negative value on error.
+typedef struct maxcso_reader {
+	void *user;
+	uint64_t size;
+	int64_t (MAXCSO_CAPI_CALL *read_at)(void *user, uint64_t offset, void *buffer, size_t length);
+} maxcso_reader;
+
+// begin is optional: it's called once with the image size before anything is written, and
+// returning nonzero fails with MAXCSO_RESULT_BAD_OUTPUT (e.g. when that much memory isn't
+// available). write_at may be called for several blocks at once, from different threads, at
+// any offset within the size.
+typedef struct maxcso_writer {
+	void *user;
+	int (MAXCSO_CAPI_CALL *begin)(void *user, uint64_t size);
+	int64_t (MAXCSO_CAPI_CALL *write_at)(void *user, uint64_t offset, const void *buffer, size_t length);
+} maxcso_writer;
+
 typedef int (MAXCSO_CAPI_CALL *maxcso_options_init_fn)(maxcso_options *options, int mode);
 typedef int (MAXCSO_CAPI_CALL *maxcso_process_ex_fn)(const char *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+typedef int (MAXCSO_CAPI_CALL *maxcso_process_reader_fn)(const maxcso_reader *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+typedef int (MAXCSO_CAPI_CALL *maxcso_decompress_writer_fn)(const char *input, const maxcso_writer *output,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 
 // Returns MAXCSO_CAPI_VERSION.
@@ -93,6 +117,16 @@ MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_options_init(maxcso_options *opti
 
 // Same as maxcso_process_flags, with all the settings in options.
 MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_ex(const char *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+// Same as maxcso_process_ex, reading the input (an ISO to compress, or a CSO/ZSO/DAX with
+// MAXCSO_MODE_DECOMPRESS's flags) through callbacks instead of a file.
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_reader(const maxcso_reader *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+// Decompresses a CSO/ZSO/DAX file (an ISO is copied) to the caller through output, e.g. to
+// repack a game through memory. On failure or cancellation what was written stays with the caller.
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_decompress_writer(const char *input, const maxcso_writer *output,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 
 #ifdef __cplusplus
