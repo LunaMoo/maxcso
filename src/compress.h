@@ -21,6 +21,7 @@ enum TaskStatus {
 	TASK_INVALID_DATA,
 	TASK_CANNOT_WRITE,
 	TASK_INVALID_OPTION,
+	TASK_CANCELLED,
 };
 
 enum TaskFlags {
@@ -64,6 +65,9 @@ struct Task {
 	uint32_t flags;
 	double orig_max_cost_percent;
 	double lz4_max_cost_percent;
+	// Optional. Checked on each progress update; returning true stops the task (reported as
+	// TASK_CANCELLED through error), leaving the output incomplete.
+	std::function<bool()> cancel;
 };
 
 void Compress(const std::vector<Task> &tasks);

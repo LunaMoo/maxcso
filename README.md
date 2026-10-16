@@ -118,7 +118,10 @@ without any changes.
 ### Windows
 
 To build on Windows, simply open cli/maxcso.sln and build.  Visual Studio 2017 or higher is
-required.
+required.  The projects use the default toolset of whichever Visual Studio opens them.
+
+The solution also builds `mCSO.dll` (the `capi` project, see Library below) into
+`lib\<platform>\<configuration>\`.
 
 ### Mac OS X
 
@@ -145,6 +148,20 @@ The following Dockerfile will produce an Ubuntu image with the needed build depe
 
 Community provided packages are available on some platforms under "maxcso".  Please confirm
 version and security before using.  Thanks should go to their respective maintainers.
+
+
+Library
+===========
+
+maxcso can also be built as a library with a small C API, declared in `capi/maxcso_capi.h`.
+It's meant for programs that load it at runtime, such as the PPSSPP emulator: it exports a handful
+of plain C functions (`maxcso_process()` compresses or decompresses one file, with a fast, standard
+or maximum preset) and nothing else.
+
+On Windows, build the `capi` project in cli/maxcso.sln, which produces `mCSO.dll`.  Elsewhere,
+`make lib` produces `mCSO.so` (or `mCSO.dylib` on macOS) and `mCSO.a`.  The static
+library already contains the bundled 7-zip and libdeflate code, so it only needs libuv, lz4 and
+zlib next to it.
 
 
 Batch processing
