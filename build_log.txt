@@ -1,0 +1,35 @@
+ Volume in drive D is Temporary Storage
+ Volume Serial Number is E2F7-AAFA
+
+ Directory of D:\a\maxcso\maxcso\cli\Release\x64\lib
+
+10/16/2026  03:24 PM    <DIR>          .
+10/16/2026  03:23 PM    <DIR>          ..
+10/16/2026  03:24 PM         5,435,154 7zip.lib
+10/16/2026  03:24 PM           339,968 7zip.pdb
+10/16/2026  03:23 PM           285,244 libdeflate.lib
+10/16/2026  03:23 PM            94,208 libdeflate.pdb
+10/16/2026  03:24 PM         8,014,432 libuv.lib
+10/16/2026  03:24 PM           274,432 libuv.pdb
+10/16/2026  03:23 PM           334,974 lz4.lib
+10/16/2026  03:23 PM           102,400 lz4.pdb
+10/16/2026  03:24 PM         7,505,156 src.lib
+10/16/2026  03:24 PM           856,064 src.pdb
+10/16/2026  03:23 PM           849,124 zlib.lib
+10/16/2026  03:23 PM           102,400 zlib.pdb
+10/16/2026  03:24 PM         1,085,244 zopfli.lib
+10/16/2026  03:23 PM            94,208 zopfli.pdb
+              14 File(s)     25,373,008 bytes
+               2 Dir(s)  157,738,348,544 bytes free
+cso_bench.cpp
+zlib.lib(deflate.obj) : MSIL .netmodule or module compiled with /GL found; restarting link with /LTCG; add /LTCG to the link command line to improve linker performance
+Generating code
+Finished generating code
+cso_full.cpp
+zlib.lib(gzwrite.obj) : MSIL .netmodule or module compiled with /GL found; restarting link with /LTCG; add /LTCG to the link command line to improve linker performance
+Generating code
+Finished generating code
+img_bench.cpp
+zlib.lib(inflate.obj) : MSIL .netmodule or module compiled with /GL found; restarting link with /LTCG; add /LTCG to the link command line to improve linker performance
+Generating code
+Finished generating code
