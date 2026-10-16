@@ -5,6 +5,9 @@ on:
     branches: [ bench/compression-trials ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Windows cso_bench.exe
@@ -28,8 +31,23 @@ jobs:
       - name: Build cso_bench.exe
         shell: cmd
         run: |
-          dir cli\Release\x64\lib
-          cl /nologo /O2 /MT /EHsc /std:c++17 /utf-8 /DNDEBUG /Izlib /Izopfli\src\zopfli /I7zip /Ilibdeflate bench\cso_bench.cpp /Fe:cso_bench.exe /link cli\Release\x64\lib\zlib.lib cli\Release\x64\lib\zopfli.lib cli\Release\x64\lib\7zip.lib cli\Release\x64\lib\libdeflate.lib
+          dir cli\Release\x64\lib > build_log.txt 2>&1
+          cl /nologo /O2 /MT /EHsc /std:c++17 /utf-8 /DNDEBUG /Izlib /Izopfli\src\zopfli /I7zip /Ilibdeflate bench\cso_bench.cpp /Fe:cso_bench.exe /link cli\Release\x64\lib\zlib.lib cli\Release\x64\lib\zopfli.lib cli\Release\x64\lib\7zip.lib cli\Release\x64\lib\libdeflate.lib >> build_log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build_log.txt
+          exit /b %RC%
+
+      - name: Publish build log to ci-logs branch
+        if: always()
+        shell: bash
+        run: |
+          cp build_log.txt /tmp/build_log.txt 2>/dev/null || echo "no log" > /tmp/build_log.txt
+          git config user.name ci && git config user.email ci@users.noreply.github.com
+          git checkout --orphan ci-logs
+          git rm -rq --cached . 
+          cp /tmp/build_log.txt build_log.txt
+          git add build_log.txt && git commit -qm "build log ${{ github.sha }}"
+          git push -f origin ci-logs
 
       - name: Upload
         uses: actions/upload-artifact@v4
