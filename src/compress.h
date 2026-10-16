@@ -65,6 +65,14 @@ struct Task {
 	uint32_t flags;
 	double orig_max_cost_percent;
 	double lz4_max_cost_percent;
+	// Zopfli: most deflate blocks it may split each block into. 0 keeps Zopfli's default (15).
+	// Larger CSO blocks compress better with more splits.
+	uint32_t zopfli_split_max = 0;
+	// 0 = off. Otherwise libdeflate (level 12) compresses each block first, and the slow trials
+	// (Zopfli, 7-zip) are skipped for blocks it can't get below this percentage of the block size,
+	// which saves their time on data that is already compressed (video, audio). Its result also
+	// competes as a normal trial, unless TASKFLAG_NO_LIBDEFLATE is set.
+	double precheck_percent = 0.0;
 	// Optional. Checked on each progress update; returning true stops the task (reported as
 	// TASK_CANCELLED through error), leaving the output incomplete.
 	std::function<bool()> cancel;

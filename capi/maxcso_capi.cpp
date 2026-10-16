@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -80,6 +82,9 @@ void CopyError(char *error, size_t error_size, const char *msg) {
 	error[error_size - 1] = '\0';
 }
 
+int ProcessTask(const char *input, const char *output, const maxcso_options &opt,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
 }  // namespace
 
 extern "C" {
@@ -92,8 +97,55 @@ const char *MAXCSO_CAPI_CALL maxcso_version(void) {
 	return maxcso::VERSION;
 }
 
+int MAXCSO_CAPI_CALL maxcso_options_init(maxcso_options *options, int mode) {
+	if (!options)
+		return MAXCSO_RESULT_INVALID_OPTION;
+	memset(options, 0, sizeof(*options));
+	options->struct_size = sizeof(*options);
+	options->block_size = maxcso::DEFAULT_BLOCK_SIZE;
+	bool ok = false;
+	uint32_t flags = FlagsForMode(mode, &ok);
+	if (!ok)
+		return MAXCSO_RESULT_INVALID_OPTION;
+	options->flags = flags;
+	return MAXCSO_RESULT_SUCCESS;
+}
+
+int MAXCSO_CAPI_CALL maxcso_process_ex(const char *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
+	CopyError(error, error_size, "");
+	// The first fields a caller can know about; anything past struct_size keeps its default.
+	const size_t minSize = offsetof(maxcso_options, zopfli_split_max);
+	if (!options || options->struct_size < minSize) {
+		CopyError(error, error_size, "Missing or invalid options");
+		return MAXCSO_RESULT_INVALID_OPTION;
+	}
+	maxcso_options opt;
+	maxcso_options_init(&opt, MAXCSO_MODE_STANDARD);
+	memcpy(&opt, options, std::min<size_t>(options->struct_size, sizeof(opt)));
+	opt.struct_size = sizeof(opt);
+	if (opt.precheck_percent < 0.0 || opt.precheck_percent > 100.0) {
+		CopyError(error, error_size, "precheck_percent must be from 0 to 100");
+		return MAXCSO_RESULT_INVALID_OPTION;
+	}
+	return ProcessTask(input, output, opt, progress, userdata, error, error_size);
+}
+
 int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output, uint32_t flags,
 	uint32_t block_size, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
+	maxcso_options opt;
+	maxcso_options_init(&opt, MAXCSO_MODE_STANDARD);
+	opt.flags = flags;
+	opt.block_size = block_size;
+	return ProcessTask(input, output, opt, progress, userdata, error, error_size);
+}
+
+}  // extern "C"
+
+namespace {
+
+int ProcessTask(const char *input, const char *output, const maxcso_options &opt,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
 	CopyError(error, error_size, "");
 	if (!input || !output || !*input || !*output) {
 		CopyError(error, error_size, "Missing input or output path");
@@ -109,10 +161,12 @@ int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output,
 	maxcso::Task task;
 	task.input = input;
 	task.output = output;
-	task.block_size = block_size;
-	task.flags = flags;
+	task.block_size = opt.block_size;
+	task.flags = opt.flags;
 	task.orig_max_cost_percent = 0.0;
 	task.lz4_max_cost_percent = 0.0;
+	task.zopfli_split_max = opt.zopfli_split_max;
+	task.precheck_percent = opt.precheck_percent;
 	bool cancelRequested = false;
 	task.progress = [&](const maxcso::Task *, maxcso::TaskStatus status, int64_t pos, int64_t total, int64_t written) {
 		if (status == maxcso::TASK_INPROGRESS) {
@@ -147,6 +201,10 @@ int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output,
 		RemoveOutput(output);
 	return result;
 }
+
+}  // namespace
+
+extern "C" {
 
 int MAXCSO_CAPI_CALL maxcso_process(const char *input, const char *output, int mode,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {

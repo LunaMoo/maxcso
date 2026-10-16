@@ -4,6 +4,8 @@
 		maxcso_version;
 		maxcso_process;
 		maxcso_process_flags;
+		maxcso_options_init;
+		maxcso_process_ex;
 	local:
 		*;
 };

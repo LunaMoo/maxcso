@@ -15,7 +15,7 @@ Output::Output(uv_loop_t *loop, const Task &task)
 	origMaxCostPercent_(task.orig_max_cost_percent), lz4MaxCostPercent_(task.lz4_max_cost_percent),
 	srcSize_(-1), index_(nullptr) {
 	for (size_t i = 0; i < QUEUE_SIZE; ++i) {
-		freeSectors_.push_back(new Sector(flags_));
+		freeSectors_.push_back(new Sector(flags_, task.zopfli_split_max, task.precheck_percent));
 	}
 }
 

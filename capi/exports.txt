@@ -2,3 +2,5 @@ _maxcso_capi_version
 _maxcso_version
 _maxcso_process
 _maxcso_process_flags
+_maxcso_options_init
+_maxcso_process_ex

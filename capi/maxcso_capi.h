@@ -56,6 +56,23 @@ typedef const char *(MAXCSO_CAPI_CALL *maxcso_version_fn)(void);
 typedef int (MAXCSO_CAPI_CALL *maxcso_process_fn)(const char *input, const char *output, int mode,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 
+// Detailed settings for maxcso_process_ex. Added after API version 2 without changing it, so a
+// caller probes for maxcso_options_init / maxcso_process_ex and falls back to maxcso_process.
+// Always fill it with maxcso_options_init first, then change fields: new fields may be appended,
+// and struct_size tells the library which ones the caller knows about.
+typedef struct maxcso_options {
+	uint32_t struct_size;       // sizeof(maxcso_options), set by maxcso_options_init.
+	uint32_t flags;             // Raw maxcso::TaskFlags.
+	uint32_t block_size;        // Power of two from 2048 to 262144, or 0xFFFFFFFF = automatic.
+	uint32_t zopfli_split_max;  // Zopfli block splits per block, 0 = Zopfli's default (15).
+	double precheck_percent;    // 0 = off. Otherwise skip Zopfli and 7-zip on blocks libdeflate
+	                            // can't shrink below this percentage of the block size.
+} maxcso_options;
+
+typedef int (MAXCSO_CAPI_CALL *maxcso_options_init_fn)(maxcso_options *options, int mode);
+typedef int (MAXCSO_CAPI_CALL *maxcso_process_ex_fn)(const char *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
 // Returns MAXCSO_CAPI_VERSION.
 MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_capi_version(void);
 // Returns the maxcso version string, e.g. "1.13.0".
@@ -69,6 +86,14 @@ MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process(const char *input, const 
 // Same, but with raw maxcso::TaskFlags and block size (0xFFFFFFFF = automatic).
 MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output, uint32_t flags,
 	uint32_t block_size, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+// Fills options with the settings maxcso_process uses for mode. Returns MAXCSO_RESULT_SUCCESS,
+// or MAXCSO_RESULT_INVALID_OPTION for an unknown mode (options are then zeroed but still valid).
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_options_init(maxcso_options *options, int mode);
+
+// Same as maxcso_process_flags, with all the settings in options.
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_ex(const char *input, const char *output, const maxcso_options *options,
+	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 
 #ifdef __cplusplus
 }
