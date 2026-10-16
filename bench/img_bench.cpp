@@ -1,5 +1,6 @@
 // img_bench: full-ISO test of CHD (CHDmodern) and EBOOT.PBP (iPBP) compression, through the same
-// libraries PPSSPP loads (CHDm.dll and iPBP.dll next to this exe, or in the current folder).
+// libraries PPSSPP loads (CHDm.dll, iPBP.dll and mCSO.dll next to this exe, or in the current folder).
+// CSO sets (all at 256K): A zopfli5, B zopfli5 splits 20, C pre-check 98% + A, D pre-check 98% + B, L libdeflate12.
 //
 // For every ISO and every setting it: compresses the whole ISO (timed), records the output size,
 // decompresses it back to an ISO (timed) and compares it byte for byte with the original, and for
@@ -8,7 +9,7 @@
 //
 // Results: bench_lib/summary.txt and bench_lib/results.csv. The ISOs are only read.
 //
-// Usage: img_bench [--hunks 2048,4096,16384,65536] [--codecs default,lzma,zstd] [--no-chd] [--no-pbp]
+// Usage: img_bench [--hunks 2048,4096,16384,65536] [--codecs default,lzma,zstd] [--no-chd] [--no-pbp] [--no-cso] [--cso-sets B,D,L]
 //                  [--no-verify] [--reads 4000] [--threads N] [dir|file.iso ...]
 
 #include <algorithm>
@@ -23,6 +24,8 @@
 #include <random>
 #include <string>
 #include <vector>
+
+#include <zlib.h>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -43,6 +46,7 @@ static LibHandle LoadLib(const fs::path &p) { return LoadLibraryW(p.wstring().c_
 static void *Sym(LibHandle h, const char *n) { return (void *)GetProcAddress(h, n); }
 static const char *CHD_LIB = "CHDm.dll";
 static const char *PBP_LIB = "iPBP.dll";
+static const char *CSO_LIB = "mCSO.dll";
 #else
 typedef void *LibHandle;
 static LibHandle LoadLib(const fs::path &p) { return dlopen(p.string().c_str(), RTLD_NOW); }
@@ -50,9 +54,11 @@ static void *Sym(LibHandle h, const char *n) { return dlsym(h, n); }
 #ifdef __APPLE__
 static const char *CHD_LIB = "CHDm.dylib";
 static const char *PBP_LIB = "iPBP.dylib";
+static const char *CSO_LIB = "mCSO.dylib";
 #else
 static const char *CHD_LIB = "CHDm.so";
 static const char *PBP_LIB = "iPBP.so";
+static const char *CSO_LIB = "mCSO.so";
 #endif
 #endif
 
@@ -107,6 +113,38 @@ struct PbpApi {
 	int (*pbp_to_iso)(ipbp_job *, const char *, const char *, const ipbp_pbp2iso_options *) = nullptr;
 	bool ok = false;
 } pbp;
+
+// mCSO (capi/maxcso_capi.h): maxcso_options_init / maxcso_process_ex are needed for these tests.
+struct maxcso_options {
+	uint32_t struct_size;
+	uint32_t flags;
+	uint32_t block_size;
+	uint32_t zopfli_split_max;
+	double precheck_percent;
+};
+typedef int (*maxcso_progress_cb)(void *userdata, int64_t pos, int64_t total, int64_t written);
+struct CsoApi {
+	const char *(*version)(void) = nullptr;
+	int (*capi_version)(void) = nullptr;
+	int (*options_init)(maxcso_options *, int) = nullptr;
+	int (*process_ex)(const char *, const char *, const maxcso_options *, maxcso_progress_cb, void *, char *, size_t) = nullptr;
+	int (*process)(const char *, const char *, int, maxcso_progress_cb, void *, char *, size_t) = nullptr;
+	bool ok = false;
+} cso;
+// maxcso::TaskFlags
+static const uint32_t CSO_NO_ZLIB = 0x03, CSO_NO_ZOPFLI = 0x04, CSO_NO_7ZIP = 0x08, CSO_NO_LZ4 = 0x380, CSO_NO_LIBDEFLATE = 0x1000;
+struct CsoSet {
+	const char *key, *name;
+	uint32_t flags, splits;
+	double precheck;
+};
+static const CsoSet CSO_SETS[] = {
+	{ "A", "zopfli5 256K", CSO_NO_ZLIB | CSO_NO_7ZIP | CSO_NO_LZ4 | CSO_NO_LIBDEFLATE, 0, 0.0 },
+	{ "B", "zopfli5 splits20 256K", CSO_NO_ZLIB | CSO_NO_7ZIP | CSO_NO_LZ4 | CSO_NO_LIBDEFLATE, 20, 0.0 },
+	{ "C", "precheck98 + zopfli5 256K", CSO_NO_ZLIB | CSO_NO_7ZIP | CSO_NO_LZ4, 0, 98.0 },
+	{ "D", "precheck98 + zopfli5 splits20 256K", CSO_NO_ZLIB | CSO_NO_7ZIP | CSO_NO_LZ4, 20, 98.0 },
+	{ "L", "libdeflate12 256K", CSO_NO_ZLIB | CSO_NO_7ZIP | CSO_NO_LZ4 | CSO_NO_ZOPFLI, 0, 0.0 },
+};
 
 template <typename T> static bool Get(LibHandle h, const char *name, T &fn) {
 	fn = (T)Sym(h, name);
@@ -235,11 +273,11 @@ struct Result {
 
 static void Report(const std::string &game, const Result &r) {
 	if (r.failed) {
-		Log("    %-34s FAILED: %s\n", (r.format + " " + r.setting).c_str(), r.error.c_str());
+		Log("    %-42s FAILED: %s\n", (r.format + " " + r.setting).c_str(), r.error.c_str());
 	} else {
 		char rd[32] = "-";
 		if (r.readMs >= 0) snprintf(rd, sizeof(rd), "%.3f", r.readMs);
-		Log("    %-34s %14llu %8.3f%% %9.1f %8.1f %9.1f %9s  %s\n", (r.format + " " + r.setting).c_str(), (unsigned long long)r.output,
+		Log("    %-42s %14llu %8.3f%% %9.1f %8.1f %9.1f %9s  %s\n", (r.format + " " + r.setting).c_str(), (unsigned long long)r.output,
 			100.0 * r.output / r.input, r.compSecs, r.input / 1e6 / r.compSecs, r.decompSecs, rd, r.verify.c_str());
 	}
 	if (g_csv) {
@@ -251,6 +289,65 @@ static void Report(const std::string &game, const Result &r) {
 }
 
 // Random sector reads, each from a hunk not read before in this test (so every read decompresses).
+// Random block reads from a CSO v1 file, decompressing the whole block each time like PPSSPP.
+static double CsoRandomReadMs(const fs::path &file, int reads) {
+	FILE *f = OpenFile(file, "rb");
+	if (!f) return -1;
+	uint8_t hdr[24];
+	if (fread(hdr, 1, 24, f) != 24 || memcmp(hdr, "CISO", 4) != 0) {
+		fclose(f);
+		return -1;
+	}
+	uint64_t total;
+	uint32_t bs;
+	memcpy(&total, hdr + 8, 8);
+	memcpy(&bs, hdr + 16, 4);
+	int align = hdr[21];
+	uint32_t blocks = (uint32_t)((total + bs - 1) / bs);
+	std::vector<uint32_t> index(blocks + 1);
+	if (fread(index.data(), 4, blocks + 1, f) != blocks + 1) {
+		fclose(f);
+		return -1;
+	}
+	std::vector<uint32_t> order(blocks);
+	for (uint32_t i = 0; i < blocks; ++i) order[i] = i;
+	std::mt19937 rng(12345);
+	std::shuffle(order.begin(), order.end(), rng);
+	int n = std::min<int>(reads, (int)blocks);
+	std::vector<uint8_t> in(bs + (1u << align) + 64), out(bs);
+	auto t0 = Clock::now();
+	for (int i = 0; i < n; ++i) {
+		uint32_t b = order[i];
+		bool plain = (index[b] & 0x80000000) != 0;
+		uint64_t pos = (uint64_t)(index[b] & 0x7FFFFFFF) << align;
+		uint64_t end = (uint64_t)(index[b + 1] & 0x7FFFFFFF) << align;
+		size_t len = (size_t)std::min<uint64_t>(end - pos, in.size());
+#ifdef _WIN32
+		_fseeki64(f, (int64_t)pos, SEEK_SET);
+#else
+		fseeko(f, (off_t)pos, SEEK_SET);
+#endif
+		size_t got = fread(in.data(), 1, len, f);
+		if (plain || len >= bs) continue;
+		z_stream z{};
+		inflateInit2(&z, -15);
+		z.next_in = in.data();
+		z.avail_in = (uInt)got;
+		z.next_out = out.data();
+		z.avail_out = bs;
+		inflate(&z, Z_FINISH);
+		inflateEnd(&z);
+	}
+	double ms = Secs(t0) * 1000.0 / std::max(1, n);
+	fclose(f);
+	return ms;
+}
+
+static int CsoProgress(void *user, int64_t pos, int64_t total, int64_t) {
+	ShowProgress((Progress *)user, total ? (double)pos / total : 0);
+	return 0;
+}
+
 static double ChdRandomReadMs(const fs::path &file, int reads) {
 	chdm_file *f = nullptr;
 	if (chd.open(file.u8string().c_str(), 0, nullptr, &f) != 0 || !f) return -1;
@@ -296,7 +393,8 @@ static std::vector<std::string> Split(const std::string &s) {
 int main(int argc, char **argv) {
 	std::vector<uint32_t> hunks = { 2048, 4096, 16384, 65536 };
 	std::vector<std::string> codecs = { "default", "lzma", "zstd" };
-	bool doChd = true, doPbp = true, verify = true;
+	bool doChd = true, doPbp = true, doCso = true, verify = true;
+	std::string csoSets = "B,D,L";
 	int reads = 4000;
 	unsigned threads = 0;
 	std::vector<fs::path> inputs;
@@ -308,6 +406,8 @@ int main(int argc, char **argv) {
 		} else if (a == "--codecs" && i + 1 < argc) codecs = Split(argv[++i]);
 		else if (a == "--no-chd") doChd = false;
 		else if (a == "--no-pbp") doPbp = false;
+		else if (a == "--no-cso") doCso = false;
+		else if (a == "--cso-sets" && i + 1 < argc) csoSets = argv[++i];
 		else if (a == "--no-verify") verify = false;
 		else if (a == "--reads" && i + 1 < argc) reads = atoi(argv[++i]);
 		else if (a == "--threads" && i + 1 < argc) threads = (unsigned)atoi(argv[++i]);
@@ -345,7 +445,19 @@ int main(int argc, char **argv) {
 				Get(h, "ipbp_pbp_to_iso", pbp.pbp_to_iso);
 		}
 	}
-	if (!chd.ok && !pbp.ok) {
+	if (doCso) {
+		LibHandle h = FindLib(CSO_LIB, exeDir);
+		if (!h) printf("%s not found next to img_bench or in the current folder: skipping CSO.\n", CSO_LIB);
+		else {
+			bool ok = Get(h, "maxcso_version", cso.version) && Get(h, "maxcso_capi_version", cso.capi_version) &&
+				Get(h, "maxcso_process", cso.process);
+			if (ok && !(Get(h, "maxcso_options_init", cso.options_init) && Get(h, "maxcso_process_ex", cso.process_ex)))
+				printf("This mCSO build has no maxcso_process_ex: build it from the feature/zopfli-splits-precheck branch. Skipping CSO.\n");
+			else
+				cso.ok = ok;
+		}
+	}
+	if (!chd.ok && !pbp.ok && !cso.ok) {
 		printf("Neither library could be used. Put CHDm.dll and/or iPBP.dll next to img_bench.exe.\n");
 		return 1;
 	}
@@ -384,9 +496,10 @@ int main(int argc, char **argv) {
 	if (!ec && sp.available < largest * 2 + (256u << 20))
 		Log("WARNING: only %.1f GB free next to the ISOs; up to %.1f GB is needed for temporary files.\n", sp.available / 1e9, (largest * 2) / 1e9);
 
+	Log("img_bench: CSO %s (%s, sets %s)\n", cso.ok ? "on" : "off", cso.ok ? cso.version() : "-", csoSets.c_str());
 	Log("img_bench: CHD %s (%s), PBP %s (%s), verify %s, %d random reads\n", chd.ok ? "on" : "off",
 		chd.ok && chd.version ? chd.version() : "-", pbp.ok ? "on" : "off", pbp.ok ? pbp.version() : "-", verify ? "on" : "off", reads);
-	Log("Columns: output bytes, of ISO, compress s, compress MB/s, decompress-to-ISO s, ms per random sector read (CHD), verify\n");
+	Log("Columns: output bytes, of ISO, compress s, compress MB/s, decompress-to-ISO s, ms per random read of a new block or hunk (CHD, CSO), verify\n");
 
 	for (const fs::path &iso : isos) {
 		std::string game = iso.stem().u8string();
@@ -451,6 +564,50 @@ int main(int argc, char **argv) {
 					Remove(out);
 					Report(game, r);
 				}
+			}
+		}
+
+		if (cso.ok) {
+			std::vector<std::string> want = Split(csoSets);
+			for (const CsoSet &set : CSO_SETS) {
+				if (std::find(want.begin(), want.end(), std::string(set.key)) == want.end()) continue;
+				Result r;
+				r.format = "CSO";
+				r.setting = std::string(set.key) + " " + set.name;
+				r.input = size;
+				fs::path out = tmp / "test.cso";
+				Remove(out);
+				maxcso_options o;
+				cso.options_init(&o, 2);
+				o.flags = set.flags;
+				o.block_size = 262144;
+				o.zopfli_split_max = set.splits;
+				o.precheck_percent = set.precheck;
+				char err[512] = "";
+				Progress pr{ "CSO " + r.setting };
+				auto t0 = Clock::now();
+				int rc = cso.process_ex(isoU8.c_str(), out.u8string().c_str(), &o, &CsoProgress, &pr, err, sizeof(err));
+				r.compSecs = Secs(t0);
+				printf("\r%70s\r", "");
+				if (rc != 0) {
+					r.failed = true;
+					r.error = err;
+				} else {
+					r.output = fs::file_size(out);
+					r.readMs = CsoRandomReadMs(out, reads);
+					if (verify) {
+						Remove(back);
+						Progress pd{ "  decompressing" };
+						t0 = Clock::now();
+						rc = cso.process(out.u8string().c_str(), back.u8string().c_str(), 0, &CsoProgress, &pd, err, sizeof(err));
+						r.decompSecs = Secs(t0);
+						printf("\r%70s\r", "");
+						r.verify = rc == 0 ? CompareImages(iso, back) : std::string("decompress failed: ") + err;
+						Remove(back);
+					}
+				}
+				Remove(out);
+				Report(game, r);
 			}
 		}
 

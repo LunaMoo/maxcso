@@ -36,7 +36,7 @@ jobs:
           if errorlevel 1 goto done
           cl /nologo /O2 /MT /EHsc /std:c++17 /utf-8 /DNDEBUG /Izlib /Izopfli\src\zopfli /Ilibdeflate bench\cso_full.cpp /Fe:cso_full.exe /link cli\Release\x64\lib\zlib.lib cli\Release\x64\lib\zopfli.lib cli\Release\x64\lib\libdeflate.lib >> build_log.txt 2>&1
           if errorlevel 1 goto done
-          cl /nologo /O2 /MT /EHsc /std:c++17 /utf-8 /DNDEBUG bench\img_bench.cpp /Fe:img_bench.exe >> build_log.txt 2>&1
+          cl /nologo /O2 /MT /EHsc /std:c++17 /utf-8 /DNDEBUG /Izlib bench\img_bench.cpp /Fe:img_bench.exe /link cli\Release\x64\lib\zlib.lib >> build_log.txt 2>&1
           :done
           set RC=%ERRORLEVEL%
           type build_log.txt
