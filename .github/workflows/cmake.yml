@@ -1,0 +1,104 @@
+name: CMake
+
+on:
+  push:
+    paths-ignore:
+      - '.{gitignore,gitattributes}'
+      - '.travis.yml'
+  pull_request:
+    paths-ignore:
+      - '.{gitignore,gitattributes}'
+      - '.travis.yml'
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux GCC,              os: ubuntu-latest,  cmake_args: "" }
+          - { name: Linux Clang static,     os: ubuntu-latest,  cmake_args: "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DMCSO_SHARED=OFF" }
+          - { name: macOS universal,        os: macos-latest,   cmake_args: "'-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64'", lib: mCSO.dylib }
+          - { name: Windows MSVC x64,       os: windows-latest, cmake_args: "-A x64" }
+          - { name: Windows MSVC x86,       os: windows-latest, cmake_args: "-A Win32" }
+          - { name: Windows MSVC ARM64,     os: windows-latest, cmake_args: "-A ARM64", cross: true }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: bash
+        run: eval cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        if: ${{ !matrix.cross }}
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Check universal binary
+        if: ${{ matrix.lib == 'mCSO.dylib' }}
+        run: |
+          lipo -archs build/mCSO.dylib | grep -q x86_64
+          lipo -archs build/mCSO.dylib | grep -q arm64
+          nm -gU build/mCSO.dylib | grep -q _maxcso_process_ex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mCSO-${{ matrix.name }}
+          path: |
+            build/mCSO.*
+            build/Release/mCSO.*
+            build/maxcso
+            build/Release/maxcso.exe
+
+  android:
+    name: Android ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake
+          -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-21
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Check exports
+        run: |
+          test -f build/mCSO.so
+          $ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf --dyn-syms build/mCSO.so | grep -q maxcso_process_ex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mCSO-android-${{ matrix.abi }}
+          path: build/mCSO.so
+
+  ios:
+    name: iOS arm64 ${{ matrix.shared == 'ON' && 'shared' || 'static' }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shared: [ON, OFF]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+          -DMCSO_SHARED=${{ matrix.shared }}
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Check
+        run: |
+          f=build/mCSO.$([ "${{ matrix.shared }}" = ON ] && echo dylib || echo a)
+          test -f $f
+          if [ "${{ matrix.shared }}" = ON ]; then
+            otool -l $f | grep -A4 LC_BUILD_VERSION | grep -q "platform 2"
+            nm -gU $f | grep -q _maxcso_process_ex
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mCSO-ios-arm64-${{ matrix.shared == 'ON' && 'shared' || 'static' }}
+          path: build/mCSO.*

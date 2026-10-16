@@ -120,9 +120,44 @@ compression.  This makes the file read faster (less cpu power), but take more sp
 Platforms
 ===========
 
-maxcso has been tested on Windows, macOS, and Linux so far.  The code was written to be portable.
-If you'd like to port it to another platform, pull requests are accepted.  It may just compile
-without any changes.
+maxcso builds on Windows, Linux, macOS, Android and iOS.  The `mCSO` library has the same name
+on every platform:
+
+| Platform | Architectures | Shared library |
+|---|---|---|
+| Windows (MSVC, CMake or the solution) | x86, x64, ARM64 (CMake) | `mCSO.dll` (+ `mCSO.lib`) |
+| Linux | x64 | `mCSO.so` |
+| macOS | arm64, x86_64 (universal) | `mCSO.dylib` |
+| Android (NDK, API 21+) | arm64-v8a, armeabi-v7a, x86_64, x86 | `mCSO.so` |
+| iOS (12.0+) | arm64 | `mCSO.dylib` |
+
+### CMake (all platforms)
+
+`CMakeLists.txt` builds everything from the bundled sources (libuv, zlib, lz4, libdeflate, Zopfli,
+7-zip), so no system packages are needed and the library has no dependencies besides the C/C++
+runtime.
+
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --config Release
+    ctest --test-dir build -C Release     # C API round trip
+
+Options: `MCSO_SHARED` (ON: `mCSO.dll` / `.so` / `.dylib` exporting only the C API; OFF: static
+`mCSO.lib` / `mCSO.a`), `MCSO_BUILD_CLI` (ON on desktop), `MCSO_BUILD_TESTS`.  The static library
+is meant for `add_subdirectory()` + `target_link_libraries(app PRIVATE maxcso::mCSO)`, which also
+links the bundled dependencies.
+
+    # Android, one ABI per build tree
+    cmake -S . -B build-android-arm64 -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+      -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21
+    # iOS (on a Mac with Xcode)
+    cmake -S . -B build-ios -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+    # macOS universal
+    cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+
+On iOS a `.dylib` can only be loaded if it is signed together with the app (or on a jailbroken /
+TrollStore device); link the static library into the app when that isn't possible.
 
 ### Windows
 
@@ -167,8 +202,8 @@ It's meant for programs that load it at runtime, such as the PPSSPP emulator: it
 of plain C functions (`maxcso_process()` compresses or decompresses one file, with a fast, standard
 or maximum preset) and nothing else.
 
-On Windows, build the `capi` project in cli/maxcso.sln, which produces `mCSO.dll`.  Elsewhere,
-`make lib` produces `mCSO.so` (or `mCSO.dylib` on macOS) and `mCSO.a`.  The static
+On every platform the CMake build above produces it (see Platforms).  On Windows, the `capi`
+project in cli/maxcso.sln also produces `mCSO.dll`.  On Linux and macOS, `make lib` produces `mCSO.so` (or `mCSO.dylib` on macOS) and `mCSO.a`.  The static
 library already contains the bundled 7-zip and libdeflate code, so it only needs libuv, lz4 and
 zlib next to it.
 

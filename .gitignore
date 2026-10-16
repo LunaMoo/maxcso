@@ -50,3 +50,6 @@
 *.VC.db
 *.suo
 .vs
+
+# CMake build trees
+/build*/
