@@ -93,6 +93,10 @@ Multiple files may be specified.  Inputs can be iso or cso files.
    --only-METHOD    Only allow a certain compression method (zlib, etc. above)
    --no-METHOD      Disable a certain compression method (zlib, etc. above)
                     The default is to use zlib and 7zdeflate only
+   --zopfli-splits=N  Let Zopfli split each block into at most N parts (default 15)
+                    More helps with large blocks, at some cost in time
+   --precheck=P     Try libdeflate first, skip Zopfli and 7-zip on blocks it can't
+                    shrink below P% of their size (e.g. 98; default off)
    --lz4-cost=N     Allow lz4 to increase block size by N% at most (cso2 only)
    --orig-cost=N    Allow uncompressed to increase block size by N% at most
    --output-path=X  Output to path X/, use basename for default outputs
@@ -103,6 +107,11 @@ is disabled by default.  Add `--use-zopfli` for maximum compression.
 
 Libdeflate is also disabled by default, because its output is not compatible with some PSP CFW.
 When not using PSP CFW, `--use-libdeflate` may improve compression a bit.
+
+With large blocks (e.g. `--block=262144`), Zopfli's default of 15 splits per block is too
+coarse; `--zopfli-splits=20` recovers most of what 7-zip would add, for less time.
+`--precheck=98` skips the slow methods on blocks that are already compressed (video, audio),
+which on PSP games is often half of all blocks, at a size cost of a few bytes per block.
 
 The cost arguments enable you to allow each block to be N% bigger by using lz4 or no
 compression.  This makes the file read faster (less cpu power), but take more space.

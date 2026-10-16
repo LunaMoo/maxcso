@@ -47,6 +47,10 @@ void show_help(const char *arg0) {
 	fprintf(stderr, "   --only-METHOD    Only allow a certain compression method (zlib, etc. above)\n");
 	fprintf(stderr, "   --no-METHOD      Disable a certain compression method (zlib, etc. above)\n");
 	fprintf(stderr, "                    The default is to use zlib and 7zdeflate only\n");
+	fprintf(stderr, "   --zopfli-splits=N  Let Zopfli split each block into at most N parts (default 15)\n");
+	fprintf(stderr, "                    More helps with large blocks, at some cost in time\n");
+	fprintf(stderr, "   --precheck=P     Try libdeflate first, skip Zopfli and 7-zip on blocks it can't\n");
+	fprintf(stderr, "                    shrink below P%% of their size (e.g. 98; default off)\n");
 	fprintf(stderr, "   --lz4-cost=N     Allow lz4 to increase block size by N%% at most (cso2 only)\n");
 	fprintf(stderr, "   --orig-cost=N    Allow uncompressed to increase block size by N%% at most\n");
 	fprintf(stderr, "   --output-path=X  Output to path X/, use basename for default outputs\n");
@@ -120,6 +124,8 @@ struct Arguments {
 
 	double orig_cost_percent;
 	double lz4_cost_percent;
+	uint32_t zopfli_split_max;
+	double precheck_percent;
 
 	bool fast;
 	bool smallest;
@@ -132,6 +138,8 @@ struct Arguments {
 void default_args(Arguments &args) {
 	args.threads = 0;
 	args.block_size = maxcso::DEFAULT_BLOCK_SIZE;
+	args.zopfli_split_max = 0;
+	args.precheck_percent = 0.0;
 
 	args.flags_fmt = 0;
 	args.flags_use = 0;
@@ -177,6 +185,15 @@ int parse_args(Arguments &args, int argc, char *argv[]) {
 				args.threads = atoi(val);
 			} else if (has_arg_value(i, argv, "--orig-cost", val)) {
 				args.orig_cost_percent = atof(val);
+			} else if (has_arg_value(i, argv, "--zopfli-splits", val)) {
+				args.zopfli_split_max = atoi(val);
+			} else if (has_arg_value(i, argv, "--precheck", val)) {
+				args.precheck_percent = atof(val);
+				if (args.precheck_percent < 0.0 || args.precheck_percent > 100.0) {
+					show_help(argv[0]);
+					fprintf(stderr, "\nERROR: --precheck must be a percentage from 0 to 100.\n");
+					return 1;
+				}
 			} else if (has_arg_value(i, argv, "--lz4-cost", val)) {
 				args.lz4_cost_percent = atof(val);
 			} else if (has_arg_value(i, argv, "--format", val)) {
@@ -532,6 +549,8 @@ int main(int argc, char *argv[]) {
 		task.flags = args.flags_final;
 		task.orig_max_cost_percent = args.orig_cost_percent;
 		task.lz4_max_cost_percent = args.lz4_cost_percent;
+		task.zopfli_split_max = args.zopfli_split_max;
+		task.precheck_percent = args.precheck_percent;
 		tasks.push_back(std::move(task));
 	}
 

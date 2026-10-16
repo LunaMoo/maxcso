@@ -33,8 +33,8 @@ static void EndZlib(z_stream *&z) {
 	z = nullptr;
 }
 
-Sector::Sector(uint32_t flags)
-	: flags_(flags) {
+Sector::Sector(uint32_t flags, uint32_t zopfliSplitMax, double precheckPercent)
+	: flags_(flags), zopfliSplitMax_(zopfliSplitMax), precheckPercent_(precheckPercent) {
 	// Set up the zlib streams, which we will reuse each time we hit this sector.
 	bool withHeader = (flags_ & TASKFLAG_FMT_DAX) != 0;
 	if (!(flags_ & TASKFLAG_NO_ZLIB_DEFAULT)) {
@@ -46,7 +46,8 @@ Sector::Sector(uint32_t flags)
 		AddZlib(zStreams_, Z_RLE, withHeader);
 	}
 
-	if (!(flags_ & TASKFLAG_NO_LIBDEFLATE)) {
+	// The pre-check needs libdeflate even when its output isn't allowed to be used.
+	if (!(flags_ & TASKFLAG_NO_LIBDEFLATE) || precheckPercent_ > 0.0) {
 		libdeflate_ = libdeflate_alloc_compressor(12);
 	}
 
@@ -151,18 +152,28 @@ void Sector::FinalizeBest(uint32_t align) {
 }
 
 void Sector::Compress() {
+	// Pre-check: if libdeflate can't shrink this block below the threshold, Zopfli and 7-zip
+	// won't either (by more than a few bytes), so don't spend their time on it.
+	bool skipSlowTrials = false;
+	bool libdeflateDone = false;
+	if (precheckPercent_ > 0.0 && libdeflate_ != nullptr) {
+		const uint32_t size = LibDeflateTrial(!(flags_ & TASKFLAG_NO_LIBDEFLATE));
+		libdeflateDone = true;
+		skipSlowTrials = size == 0 || size >= blockSize_ * (precheckPercent_ / 100.0);
+	}
+
 	// Each of these sometimes wins on certain blocks.
 	for (z_stream *const z : zStreams_) {
 		ZlibTrial(z);
 	}
-	if (!(flags_ & TASKFLAG_NO_ZOPFLI)) {
+	if (!(flags_ & TASKFLAG_NO_ZOPFLI) && !skipSlowTrials) {
 		ZopfliTrial();
 	}
-	if (!(flags_ & TASKFLAG_NO_7ZIP)) {
+	if (!(flags_ & TASKFLAG_NO_7ZIP) && !skipSlowTrials) {
 		SevenZipTrial();
 	}
-	if (!(flags_ & TASKFLAG_NO_LIBDEFLATE)) {
-		LibDeflateTrial();
+	if (!(flags_ & TASKFLAG_NO_LIBDEFLATE) && !libdeflateDone) {
+		LibDeflateTrial(true);
 	}
 	if (!(flags_ & (TASKFLAG_NO_LZ4_HC | TASKFLAG_NO_LZ4_HC_BRUTE))) {
 		LZ4HCTrial(!(flags_ & TASKFLAG_NO_LZ4_HC_BRUTE));
@@ -214,6 +225,9 @@ void Sector::ZopfliTrial() {
 	ZopfliInitOptions(&opt);
 	opt.blocksplittinglast = 1;
 	opt.numiterations = 5;
+	if (zopfliSplitMax_ != 0) {
+		opt.blocksplittingmax = static_cast<int>(zopfliSplitMax_);
+	}
 
 	// Grr, zopfli doesn't allow us to use a fixed-size buffer.
 	// Also doesn't return failure?
@@ -244,7 +258,7 @@ void Sector::SevenZipTrial() {
 #endif
 }
 
-void Sector::LibDeflateTrial() {
+uint32_t Sector::LibDeflateTrial(bool submit) {
 	uint8_t *result = pool.Alloc();
 	size_t resultSize;
 	if (flags_ & TASKFLAG_FMT_DAX) {
@@ -253,11 +267,12 @@ void Sector::LibDeflateTrial() {
 		resultSize = libdeflate_deflate_compress(libdeflate_, buffer_, blockSize_, result, pool.bufferSize);
 	}
 
-	if (resultSize != 0) {
+	if (resultSize != 0 && submit) {
 		SubmitTrial(result, static_cast<uint32_t>(resultSize), SECTOR_FMT_DEFLATE);
 	} else {
 		pool.Release(result);
 	}
+	return static_cast<uint32_t>(resultSize);
 }
 
 void Sector::LZ4HCTrial(bool allowBrute) {

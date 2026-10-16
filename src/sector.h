@@ -25,7 +25,7 @@ enum SectorFormat {
 // Actually block.
 class Sector {
 public:
-	Sector(uint32_t flags);
+	Sector(uint32_t flags, uint32_t zopfliSplitMax = 0, double precheckPercent = 0.0);
 	~Sector();
 
 	void Setup(uv_loop_t *loop, uint32_t blockSize, uint32_t align, uint32_t origMaxCost, uint32_t lz4MaxCost) {
@@ -79,7 +79,8 @@ private:
 	void ZlibTrial(z_stream *z);
 	void ZopfliTrial();
 	void SevenZipTrial();
-	void LibDeflateTrial();
+	// Returns the compressed size, or 0 on failure. With submit false, only measures.
+	uint32_t LibDeflateTrial(bool submit);
 	void LZ4HCTrial(bool allowBrute);
 	void LZ4Trial();
 	bool SubmitTrial(uint8_t *result, uint32_t size, SectorFormat fmt);
@@ -87,6 +88,8 @@ private:
 	UVHelper uv_;
 	uv_loop_t *loop_;
 	uint32_t flags_;
+	uint32_t zopfliSplitMax_ = 0;
+	double precheckPercent_ = 0.0;
 	uint32_t align_;
 	uint32_t origMaxCost_ = 0;
 	uint32_t lz4MaxCost_ = 0;
