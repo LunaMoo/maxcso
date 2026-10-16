@@ -185,6 +185,13 @@ int uv_uptime(double* uptime) {
   return 0;
 }
 
+#if TARGET_OS_IPHONE
+/* maxcso: IOKit isn't available on iOS (same as upstream libuv 1.42). */
+static int uv__get_cpu_speed(uint64_t* speed) {
+  *speed = 0;
+  return UV_ENOTSUP;
+}
+#else
 static int uv__get_cpu_speed(uint64_t* speed) {
   /* IOKit */
   void (*pIOObjectRelease)(io_object_t);
@@ -315,6 +322,7 @@ out:
 
   return err;
 }
+#endif  /* !TARGET_OS_IPHONE */
 
 int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
   unsigned int ticks = (unsigned int)sysconf(_SC_CLK_TCK),
