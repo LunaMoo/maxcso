@@ -10,6 +10,7 @@
 // Results: bench_lib/summary.txt and bench_lib/results.csv. The ISOs are only read.
 //
 // Usage: img_bench [--hunks 2048,4096,16384,65536] [--codecs default,lzma,zstd] [--no-chd] [--no-pbp] [--no-cso] [--cso-sets B,D,L]
+//                  [--pbp-modes lzrc,max,none]
 //                  [--no-verify] [--reads 4000] [--threads N] [dir|file.iso ...]
 
 #include <algorithm>
@@ -395,6 +396,7 @@ int main(int argc, char **argv) {
 	std::vector<std::string> codecs = { "default", "lzma", "zstd" };
 	bool doChd = true, doPbp = true, doCso = true, verify = true;
 	std::string csoSets = "B,D,L";
+	std::string pbpModes = "lzrc,max,none";
 	int reads = 4000;
 	unsigned threads = 0;
 	std::vector<fs::path> inputs;
@@ -407,6 +409,7 @@ int main(int argc, char **argv) {
 		else if (a == "--no-chd") doChd = false;
 		else if (a == "--no-pbp") doPbp = false;
 		else if (a == "--no-cso") doCso = false;
+		else if (a == "--pbp-modes" && i + 1 < argc) pbpModes = argv[++i];
 		else if (a == "--cso-sets" && i + 1 < argc) csoSets = argv[++i];
 		else if (a == "--no-verify") verify = false;
 		else if (a == "--reads" && i + 1 < argc) reads = atoi(argv[++i]);
@@ -496,6 +499,7 @@ int main(int argc, char **argv) {
 	if (!ec && sp.available < largest * 2 + (256u << 20))
 		Log("WARNING: only %.1f GB free next to the ISOs; up to %.1f GB is needed for temporary files.\n", sp.available / 1e9, (largest * 2) / 1e9);
 
+	Log("img_bench: PBP modes %s\n", pbpModes.c_str());
 	Log("img_bench: CSO %s (%s, sets %s)\n", cso.ok ? "on" : "off", cso.ok ? cso.version() : "-", csoSets.c_str());
 	Log("img_bench: CHD %s (%s), PBP %s (%s), verify %s, %d random reads\n", chd.ok ? "on" : "off",
 		chd.ok && chd.version ? chd.version() : "-", pbp.ok ? "on" : "off", pbp.ok ? pbp.version() : "-", verify ? "on" : "off", reads);
@@ -613,7 +617,10 @@ int main(int argc, char **argv) {
 
 		if (pbp.ok) {
 			uint64_t lzrcSize = 0;
+			std::vector<std::string> modes = Split(pbpModes);
 			for (int compress : { 1, 2, 0 }) {
+				const char *key = compress == 2 ? "max" : compress ? "lzrc" : "none";
+				if (std::find(modes.begin(), modes.end(), std::string(key)) == modes.end()) continue;
 				Result r;
 				r.format = "PBP";
 				r.setting = compress == 2 ? "LZRC max" : compress ? "LZRC" : "uncompressed";
@@ -656,7 +663,7 @@ int main(int argc, char **argv) {
 				Remove(out);
 				if (compress == 1) lzrcSize = r.output;
 				// An iPBP.dll older than the max mode treats 2 as plain LZRC.
-				if (compress == 2 && !r.failed && r.output == lzrcSize) r.verify += " (same as LZRC: iPBP.dll without max mode?)";
+				if (compress == 2 && !r.failed && lzrcSize && r.output == lzrcSize) r.verify += " (same as LZRC: iPBP.dll without max mode?)";
 				Report(game, r);
 			}
 		}

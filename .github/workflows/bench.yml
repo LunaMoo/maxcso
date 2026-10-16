@@ -63,5 +63,6 @@ jobs:
             cso_full.exe
             img_bench.exe
             bench/run_img.bat
+            bench/run_pbp_max.bat
             bench/run_bench.bat
             bench/run_full.bat
