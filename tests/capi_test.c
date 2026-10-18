@@ -72,7 +72,9 @@ struct memory {
 	const unsigned char *in;
 	unsigned char *out;
 	uint64_t size;
+	uint64_t end; /* highest offset written */
 	int refuse;
+	int slack;    /* begin allocates twice the size (compressed output can outgrow the input a bit) */
 };
 
 static int64_t MAXCSO_CAPI_CALL mem_read(void *user, uint64_t offset, void *buffer, size_t length) {
@@ -89,8 +91,8 @@ static int MAXCSO_CAPI_CALL mem_begin(void *user, uint64_t size) {
 	struct memory *m = (struct memory *)user;
 	if (m->refuse)
 		return 1;
-	m->size = size;
-	m->out = (unsigned char *)calloc((size_t)size, 1);
+	m->size = m->slack ? size * 2 : size;
+	m->out = (unsigned char *)calloc((size_t)m->size, 1);
 	return m->out ? 0 : 1;
 }
 
@@ -99,6 +101,8 @@ static int64_t MAXCSO_CAPI_CALL mem_write(void *user, uint64_t offset, const voi
 	if (!m->out || offset > m->size || length > m->size - offset)
 		return -1;
 	memcpy(m->out + offset, buffer, length);
+	if (offset + length > m->end)
+		m->end = offset + length; /* the test's writes come from several threads, but only read after */
 	return (int64_t)length;
 }
 
@@ -116,7 +120,7 @@ static int memory_round_trip(const char *dir, const unsigned char *iso) {
 	maxcso_reader reader;
 	maxcso_writer writer;
 	maxcso_options opts;
-	int rc, failed = 0;
+	int rc, i, failed = 0;
 
 	snprintf(iso_path, sizeof(iso_path), "%s/mcso_test.iso", dir);
 	snprintf(file_cso, sizeof(file_cso), "%s/mcso_test_file.cso", dir);
@@ -142,8 +146,34 @@ static int memory_round_trip(const char *dir, const unsigned char *iso) {
 		fprintf(stderr, "memory: CSO from memory differs (%ld vs %ld bytes)\n", mem_size, file_size);
 		failed = 1;
 	}
-	free(a);
 	free(b);
+
+	/* ISO (file, then memory) -> CSO in memory: must match the CSO file too. */
+	writer.user = &m;
+	writer.begin = mem_begin;
+	writer.write_at = mem_write;
+	for (i = 0; i < 2 && a; ++i) {
+		struct memory src;
+		memset(&src, 0, sizeof(src));
+		src.in = iso;
+		src.size = ISO_SIZE;
+		reader.user = &src;
+		memset(&m, 0, sizeof(m));
+		m.slack = 1;
+		rc = maxcso_process_io(i == 0 ? iso_path : NULL, &reader, &writer, &opts, NULL, NULL, error, sizeof(error));
+		if (rc != MAXCSO_RESULT_SUCCESS || m.end != (uint64_t)file_size || memcmp(m.out, a, file_size) != 0) {
+			fprintf(stderr, "memory: CSO into memory (%s) differs (%d, %llu vs %ld bytes): %s\n", i == 0 ? "from file" : "from memory", rc,
+				(unsigned long long)m.end, file_size, error);
+			failed = 1;
+		}
+		free(m.out);
+	}
+	reader.user = &m;
+	if (maxcso_process_io(NULL, NULL, &writer, &opts, NULL, NULL, error, sizeof(error)) != MAXCSO_RESULT_INVALID_OPTION) {
+		fprintf(stderr, "memory: maxcso_process_io took no input\n");
+		failed = 1;
+	}
+	free(a);
 
 	memset(&m, 0, sizeof(m));
 	writer.user = &m;

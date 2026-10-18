@@ -6,3 +6,4 @@ _maxcso_options_init
 _maxcso_process_ex
 _maxcso_process_reader
 _maxcso_decompress_writer
+_maxcso_process_io

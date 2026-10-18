@@ -8,6 +8,7 @@
 		maxcso_process_ex;
 		maxcso_process_reader;
 		maxcso_decompress_writer;
+		maxcso_process_io;
 	local:
 		*;
 };

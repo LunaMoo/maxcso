@@ -94,6 +94,8 @@ typedef int (MAXCSO_CAPI_CALL *maxcso_process_ex_fn)(const char *input, const ch
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 typedef int (MAXCSO_CAPI_CALL *maxcso_process_reader_fn)(const maxcso_reader *input, const char *output, const maxcso_options *options,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+typedef int (MAXCSO_CAPI_CALL *maxcso_process_io_fn)(const char *input, const maxcso_reader *reader, const maxcso_writer *output,
+	const maxcso_options *options, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 typedef int (MAXCSO_CAPI_CALL *maxcso_decompress_writer_fn)(const char *input, const maxcso_writer *output,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 
@@ -128,6 +130,15 @@ MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_reader(const maxcso_reade
 // repack a game through memory. On failure or cancellation what was written stays with the caller.
 MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_decompress_writer(const char *input, const maxcso_writer *output,
 	maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
+
+// Compresses (or with MAXCSO_MODE_DECOMPRESS's flags, decompresses) with the output going to the
+// caller through output, e.g. to build a CSO in memory and hand it to an archive. The input is
+// the file at input, or reader when input is NULL. output->begin gets the INPUT's size (an upper
+// bound for a compressed result that saves anything); write_at may come for several blocks at
+// once, in any order, and the output ends at the highest offset written. On failure or
+// cancellation what was written stays with the caller. Probed for like maxcso_process_ex.
+MAXCSO_CAPI_EXPORT int MAXCSO_CAPI_CALL maxcso_process_io(const char *input, const maxcso_reader *reader, const maxcso_writer *output,
+	const maxcso_options *options, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size);
 
 #ifdef __cplusplus
 }

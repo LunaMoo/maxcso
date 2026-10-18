@@ -150,6 +150,24 @@ int MAXCSO_CAPI_CALL maxcso_decompress_writer(const char *input, const maxcso_wr
 	return ProcessTask(input, nullptr, opt, progress, userdata, error, error_size, nullptr, output);
 }
 
+int MAXCSO_CAPI_CALL maxcso_process_io(const char *input, const maxcso_reader *reader, const maxcso_writer *output,
+	const maxcso_options *options, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
+	CopyError(error, error_size, "");
+	if (!output || !output->write_at) {
+		CopyError(error, error_size, "Missing output writer");
+		return MAXCSO_RESULT_INVALID_OPTION;
+	}
+	if ((!input || !*input) && (!reader || !reader->read_at)) {
+		CopyError(error, error_size, "Missing input path or reader");
+		return MAXCSO_RESULT_INVALID_OPTION;
+	}
+	maxcso_options opt;
+	if (!ReadOptions(options, &opt, error, error_size))
+		return MAXCSO_RESULT_INVALID_OPTION;
+	const bool useReader = !input || !*input;
+	return ProcessTask(useReader ? nullptr : input, nullptr, opt, progress, userdata, error, error_size, useReader ? reader : nullptr, output);
+}
+
 int MAXCSO_CAPI_CALL maxcso_process_flags(const char *input, const char *output, uint32_t flags,
 	uint32_t block_size, maxcso_progress_cb progress, void *userdata, char *error, size_t error_size) {
 	maxcso_options opt;
